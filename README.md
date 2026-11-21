@@ -47,3 +47,7 @@ claude plugin validate .
 ## Known limits
 
 - Where the app does not report the composer's position, the layout assumes a sidebar of about 12% of the window width or less. With a wider sidebar, the left cedars sit under it.
+
+## License
+
+MIT, in [LICENSE](LICENSE). The license does not cover `hooks/make-colors.js` and `hooks/make-colors.d.ts`. Those two files come unchanged from the plugin-authoring skill of Claude Code, which tells mod authors to copy them in.
