@@ -33,7 +33,9 @@ A mod installed from a terminal at the user scope also loads in the desktop app'
 - `hooks/register.tsx` sets the colors and the backdrop at session start.
 - `hooks/field.ts` is the shader that animates the backdrop.
 - `hooks/still.ts` is the still picture shown where a shader cannot run. It is generated.
-- `tools/build.mjs` generates the glyph font, the torii, the tree table in `field.ts`, and all of `still.ts`.
+- `tools/art.mjs` holds the glyph font and the torii drawing.
+- `tools/build.mjs` generates the glyph tables and the tree table in `field.ts`, and all of `still.ts`.
+- `tools/icon.mjs` draws the icon, the torii built from glyphs, as `tools/icon.svg`. `.claude-plugin/icon.png` is that SVG rendered at 1024 x 1024.
 
 ## Change it
 
@@ -42,6 +44,12 @@ Edit `tools/build.mjs`, then run:
 ```
 node tools/build.mjs
 claude plugin validate .
+```
+
+To redraw the icon, run `node tools/icon.mjs`, then render `tools/icon.svg` to `.claude-plugin/icon.png` at 1024 x 1024. For example, with headless Edge or Chrome:
+
+```
+msedge --headless=new --force-device-scale-factor=1 --window-size=1024,1024 --screenshot=.claude-plugin/icon.png tools/icon.svg
 ```
 
 ## Known limits
