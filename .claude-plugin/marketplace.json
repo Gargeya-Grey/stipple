@@ -1,0 +1,5 @@
+{
+  "name": "stipple",
+  "owner": { "name": "Gargeya-Grey" },
+  "plugins": [{ "name": "stipple", "source": "./" }]
+}

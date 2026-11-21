@@ -1,0 +1,279 @@
+// Builds the glyph tables inside hooks/field.ts and the still picture in hooks/still.ts.
+// Run: node tools/build.mjs (from the mod folder).
+import { readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+const GLYPHS = [
+  [' ', 'SPACE', ['.....', '.....', '.....', '.....', '.....', '.....', '.....']],
+  ['.', 'DOT', ['.....', '.....', '.....', '.....', '.##..', '.##..', '.....']],
+  [',', 'COMMA', ['.....', '.....', '.....', '.....', '..##.', '..##.', '.##..']],
+  ['`', 'TICK', ['.#...', '..#..', '.....', '.....', '.....', '.....', '.....']],
+  ['-', 'DASH', ['.....', '.....', '.....', '#####', '.....', '.....', '.....']],
+  ['=', 'EQ', ['.....', '.....', '#####', '.....', '#####', '.....', '.....']],
+  ['~', 'TILDE', ['.....', '.....', '.#...', '#.#.#', '...#.', '.....', '.....']],
+  ['_', 'UNDER', ['.....', '.....', '.....', '.....', '.....', '.....', '#####']],
+  ['|', 'PIPE', ['..#..', '..#..', '..#..', '..#..', '..#..', '..#..', '..#..']],
+  ['/', 'SLASH', ['....#', '...#.', '...#.', '..#..', '.#...', '.#...', '#....']],
+  ['\\', 'BACK', ['#....', '.#...', '.#...', '..#..', '...#.', '...#.', '....#']],
+  ['^', 'CARET', ['..#..', '.#.#.', '#...#', '.....', '.....', '.....', '.....']],
+  ['A', 'A', ['..#..', '.#.#.', '#...#', '#...#', '#####', '#...#', '#...#']],
+  ['*', 'STAR', ['.....', '..#..', '#.#.#', '.###.', '#.#.#', '..#..', '.....']],
+  ['+', 'PLUS', ['.....', '..#..', '..#..', '#####', '..#..', '..#..', '.....']],
+  ['#', 'HASH', ['.#.#.', '.#.#.', '#####', '.#.#.', '#####', '.#.#.', '.#.#.']],
+  ['[', 'OPEN', ['###..', '#....', '#....', '#....', '#....', '#....', '###..']],
+  [']', 'CLOSE', ['..###', '....#', '....#', '....#', '....#', '....#', '..###']],
+  ['Y', 'Y', ['#...#', '#...#', '.#.#.', '..#..', '..#..', '..#..', '..#..']],
+  [':', 'COLON', ['.....', '.##..', '.##..', '.....', '.##..', '.##..', '.....']],
+  ['o', 'O', ['.....', '.....', '.###.', '#...#', '#...#', '.###.', '.....']],
+  ['%', 'PCT', ['##...', '##..#', '...#.', '..#..', '.#...', '#..##', '...##']],
+  ['&', 'AMP', ['.##..', '#..#.', '#.#..', '.#...', '#.#.#', '#..#.', '.##.#']],
+  ['@', 'AT', ['.###.', '#...#', '#.###', '#.#.#', '#.###', '#....', '.###.']],
+  ['x', 'X', ['.....', '.....', '#...#', '.#.#.', '..#..', '.#.#.', '#...#']],
+  ['v', 'V', ['.....', '.....', '#...#', '#...#', '.#.#.', '.#.#.', '..#..']],
+  ['!', 'BANG', ['..#..', '..#..', '..#..', '..#..', '..#..', '.....', '..#..']],
+  [';', 'SEMI', ['.....', '.##..', '.##..', '.....', '.##..', '.##..', '.#...']],
+  ['木', 'KI', ['..#..', '#####', '..#..', '.###.', '#.#.#', '..#..', '..#..']],
+  ['山', 'YAMA', ['..#..', '..#..', '#.#.#', '#.#.#', '#.#.#', '#####', '.....']],
+  ['人', 'HITO', ['..#..', '..#..', '..#..', '.#.#.', '.#.#.', '#...#', '#...#']],
+  ['"', 'QUOTE', ['.#.#.', '.#.#.', '.....', '.....', '.....', '.....', '.....']],
+]
+
+const TORII = [
+  '~=._                _.=~',
+  ' =####################= ',
+  '  ====================  ',
+  '    |#|   [##]   |#|    ',
+  '    |#|   [__]   |#|    ',
+  '  =#|#|##########|#|#=  ',
+  '    |#|          |#|    ',
+  '    |#|          |#|    ',
+  '    |#|          |#|    ',
+  '    |#|          |#|    ',
+  '    |#|          |#|    ',
+  '    |#|          |#|    ',
+  '    |#|          |#|    ',
+  '    |#|          |#|    ',
+  '    |#|          |#|    ',
+  '    |#|          |#|    ',
+  '   [###]        [###]   ',
+  ' .,~-~,..  .  ..,~-~,.  ',
+]
+
+// Near cedars, back to front: place along the margins (0 to 1 the left one from its outer edge, 1 to 2 the right
+// one), share of the height, seed, depth (1 nearest).
+const TREES = [
+  [0.5, 0.3, 0.35, 0.15],
+  [0.3, 0.45, 0.7, 0.5],
+  [0.1, 0.62, 0.1, 1],
+  [0.75, 0.19, 0.9, 0.8],
+  [1.3, 0.38, 0.2, 0.25],
+  [1.55, 0.24, 0.55, 0.6],
+  [1.08, 0.52, 0.62, 1],
+]
+// The still has no prompt box to measure: the margins it assumes, as the shader does when none is known.
+const MARGINS = [0.12, 0.32, 0.72]
+const acrossMargin = pos => (pos < 1 ? MARGINS[0] + pos * (MARGINS[1] - MARGINS[0]) : 1 - (pos - 1) * (1 - MARGINS[2]))
+
+const index = new Map(GLYPHS.map(([ch], i) => [ch, i]))
+if (GLYPHS.length !== 32) throw new Error(`need 32 glyphs, have ${GLYPHS.length}`)
+
+const font = GLYPHS.map(([ch, , rows]) => {
+  if (rows.length !== 7 || rows.some(r => r.length !== 5)) throw new Error(`glyph ${ch} is not 5x7`)
+  let a = 0
+  let b = 0
+  rows.forEach((r, row) =>
+    [...r].forEach((cell, col) => {
+      if (cell !== '#') return
+      if (row < 4) a |= 1 << (row * 5 + col)
+      else b |= 1 << ((row - 4) * 5 + col)
+    }),
+  )
+  return [a, b]
+})
+
+const torii = TORII.map((line, r) => {
+  const cells = [...line.padEnd(24, ' ')]
+  if (cells.length !== 24) throw new Error(`torii row ${r} is ${cells.length} wide`)
+  const words = [0, 0, 0, 0]
+  cells.forEach((ch, c) => {
+    const g = index.get(ch)
+    if (g === undefined) throw new Error(`torii row ${r} has unknown glyph ${ch}`)
+    words[Math.floor(c / 6)] |= g << (5 * (c % 6))
+  })
+  return words
+})
+
+const block = [
+  '// <generated by tools/build.mjs>',
+  ...GLYPHS.map(([, name], i) => `const G_${name} = ${i}`),
+  `const FONT = table(${JSON.stringify(font)}, 'int')`,
+  `const TORII = table(${JSON.stringify(torii)}, 'int')`,
+  `const TREES = table(${JSON.stringify(TREES)})`,
+  '// </generated>',
+].join('\n')
+
+const fieldPath = join(root, 'hooks', 'field.ts')
+const field = readFileSync(fieldPath, 'utf8')
+const marked = /\/\/ <generated by tools\/build\.mjs>[\s\S]*?\/\/ <\/generated>/
+if (!marked.test(field)) throw new Error('field.ts has no generated block')
+writeFileSync(fieldPath, field.replace(marked, block))
+
+// The still picture: the scene's resting frame, at a reference window, drawn as glyph pixels.
+const scramble = (a, b) => {
+  let h = (Math.imul(a | 0, 3471823) + Math.imul(b | 0, 5908417) + 733) | 0
+  h ^= h >>> 17
+  h = Math.imul(h, 93827461)
+  h ^= h >>> 11
+  h = Math.imul(h, 2753197)
+  h ^= h >>> 14
+  return h
+}
+const part = (h, shift) => ((h >>> shift) & 255) / 256
+const smooth = (e0, e1, x) => {
+  const t = Math.min(Math.max((x - e0) / (e1 - e0), 0), 1)
+  return t * t * (3 - 2 * t)
+}
+
+const W = 1512
+const H = 945
+const CELL = 12
+const cols = Math.floor(W / CELL)
+const rows = Math.floor(H / CELL)
+const grid = new Map()
+const put = (cx, cy, g, k) => grid.set(`${cx},${cy}`, [g, k])
+
+for (let cy = 0; cy < rows; cy++) {
+  for (let cx = 0; cx < cols; cx++) {
+    const h = scramble(cx, cy)
+    const r1 = part(h, 0)
+    const r2 = part(h, 8)
+    const r3 = part(h, 16)
+    const ux = (cx + 0.5) / cols
+    const uy = (cy + 0.5) / rows
+    const calm = smooth(0.16, 0.3, Math.abs(ux - 0.52))
+    const corner = cy >= rows - 1 && cx < 1
+    if (!corner && r1 < 0.03 * (0.25 + 0.75 * calm) * (0.3 + uy)) {
+      put(cx, cy, r2 < 0.75 ? index.get('.') : r2 < 0.92 ? index.get('`') : index.get('+'), 0)
+    }
+    const inComposer = ux > 0.3 && ux < 0.7 && uy < 0.12
+    if (inComposer) continue
+    if (cy === 0) put(cx, cy, r1 < 0.5 ? index.get('_') : r1 < 0.8 ? index.get(',') : index.get('.'), 1)
+    const tc = Math.floor(cx / 7)
+    const th = (4 + 7 * part(scramble(tc, 3), 0)) * (0.55 + 0.6 * calm) + 2
+    const fdx = Math.abs(cx - tc * 7 - 3)
+    const fdy = cy - 1
+    if (fdy >= 0 && fdy <= th - 1 && fdx <= (th - fdy) * 0.5) {
+      const g =
+        fdy >= th - 1.5 ? '^' : fdx >= (th - fdy) * 0.5 - 0.6 ? (cx < tc * 7 + 3 ? '/' : '\\') : r2 < 0.5 ? ':' : 'A'
+      put(cx, cy, index.get(g), 1)
+    }
+  }
+}
+
+for (const [pos, hs, seed] of TREES) {
+  const trunkX = Math.floor(acrossMargin(pos) * cols)
+  const Ht = Math.floor(hs * rows)
+  const trunkH = Math.max(2, Ht * 0.12)
+  for (let dy = 0; dy < Ht; dy++) {
+    const rel = Ht - dy
+    const w = rel * 0.42 * (0.7 + 0.3 * ((rel / 5) % 1)) + 0.3
+    for (let dx = -Math.ceil(w) - 1; dx <= Math.ceil(w) + 1; dx++) {
+      const cx = trunkX + dx
+      const cy = dy + 1
+      const adx = Math.abs(dx)
+      const r3 = part(scramble(cx, cy), 16)
+      if (dy >= trunkH * 0.7 && adx <= w) {
+        const leaf = Math.floor(((r3 + seed) % 1) * 5)
+        const g = rel <= 1 ? '^' : adx > w - 1 ? (dx < 0 ? '/' : '\\') : ['^', 'A', '*', '%', '#'][leaf]
+        put(cx, cy, index.get(g), 2)
+      } else if (dy < trunkH && adx < 0.5) {
+        put(cx, cy, index.get('|'), 6)
+      } else if (dy === 0 && adx < 1.5) {
+        put(cx, cy, index.get(dx < 0 ? '/' : '\\'), 6)
+      }
+    }
+  }
+}
+
+const gx0 = cols - 27
+const gy0 = rows - 5
+const gate = new Set()
+TORII.forEach((line, gr) =>
+  [...line.padEnd(24, ' ')].forEach((ch, gx) => {
+    if (ch === ' ') return
+    const tablet = gr >= 3 && gr <= 4 && gx >= 10 && gx <= 13
+    put(gx0 + gx, gy0 - gr, index.get(ch), gr === 17 ? 1 : tablet ? 6 : 4)
+    gate.add(`${gx0 + gx},${gy0 - gr}`)
+  }),
+)
+
+// Forest kinds print as stepped blocks of whole cells, merged along each row: glyph pixels for every needle
+// would pass the size limit. The torii, the specks and everything else keep their glyphs.
+const BLOCK = new Set([1, 2, 6])
+const blocky = key => BLOCK.has(grid.get(key)?.[1]) && !gate.has(key)
+const paths = new Map()
+for (let cy = 0; cy < rows; cy++) {
+  let cx = 0
+  while (cx < cols) {
+    const here = grid.get(`${cx},${cy}`)
+    if (!blocky(`${cx},${cy}`)) {
+      cx++
+      continue
+    }
+    const k = here[1]
+    let end = cx
+    while (end < cols && blocky(`${end},${cy}`) && grid.get(`${end},${cy}`)[1] === k) end++
+    const y = H - (cy + 1) * CELL
+    paths.set(k, (paths.get(k) ?? '') + `M${cx * CELL} ${y}h${(end - cx) * CELL}v${CELL}h-${(end - cx) * CELL}z`)
+    cx = end
+  }
+}
+for (const [key, [g, k]] of grid) {
+  if (blocky(key)) continue
+  const [cx, cy] = key.split(',').map(Number)
+  const glyph = GLYPHS[g][2]
+  let d = paths.get(k) ?? ''
+  glyph.forEach((line, row) => {
+    const y = H - (cy * CELL + 0.75 + (7 - row) * 1.5)
+    let col = 0
+    while (col < 5) {
+      if (line[col] !== '#') {
+        col++
+        continue
+      }
+      let end = col
+      while (end < 5 && line[end] === '#') end++
+      const x = cx * CELL + 2.25 + col * 1.5
+      d += `M${+x.toFixed(2)} ${+y.toFixed(2)}h${(end - col) * 1.5}v1.5h-${(end - col) * 1.5}z`
+      col = end
+    }
+  })
+  paths.set(k, d)
+}
+
+const LIGHT = ['#8A968F', '#A9BFB3', '#1E5B49', '#B7C8BE', '#D4532B', '#0B7A55', '#3A2E26', '#E07A3A']
+const DARK = ['#5E6B65', '#294A3F', '#448069', '#364741', '#DF6B3F', '#56C495', '#9E8D7D', '#E78954']
+const css = [
+  '.ground { fill: #F6F7F4; }',
+  ...LIGHT.map((c, k) => `.k${k} { fill: ${c}; }`),
+  '.k0 { opacity: 0.6; }',
+  '.k1 { opacity: 0.45; }',
+  '.k2 { opacity: 0.3; }',
+  '.k6 { opacity: 0.5; }',
+  '@media (prefers-color-scheme: dark) {',
+  '.ground { fill: #1A201E; }',
+  ...DARK.map((c, k) => `.k${k} { fill: ${c}; }`),
+  '}',
+].join('\n')
+const body = [...paths].map(([k, d]) => `<path class="k${k}" d="${d}"/>`).join('')
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice"><style>${css}</style><rect class="ground" width="${W}" height="${H}"/>${body}</svg>`
+if (svg.length > 131072) throw new Error(`still is ${svg.length} characters, over 131072`)
+
+writeFileSync(
+  join(root, 'hooks', 'still.ts'),
+  `// Generated by tools/build.mjs: the scene's resting frame, shown where the shader does not play.\nexport const STILL_SVG = ${JSON.stringify(svg)}\n`,
+)
+console.log(`glyphs ${GLYPHS.length}, torii rows ${torii.length}, still ${svg.length} characters, ${grid.size} cells`)
