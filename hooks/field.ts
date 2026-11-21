@@ -1,11 +1,13 @@
-// Stipple: a forest built of characters, with a vermilion torii at the top right.
+// Stipple: a forest built of characters. In the right margin three flights of stairs zigzag up through three
+// vermilion torii, each smaller and farther than the last, to a point of light; a small figure climbs them one step
+// at a time and gains light at each gate.
 // Passes: "trail" (where the pointer has moved), "tap" (the last press), "flies" (twelve spirits that drift in the
 // margins and gather round a pointer), "art" (one texel per character cell: which glyph, its kind, how bright, how
 // much it glows), "halo" (the glow, split warm and leaf, blurred through its mipmaps) and the picture, which prints
 // each cell's glyph from a 5x7 bitmap font over the paper colour read from the Svg.
 import {
-  abs, buffer, clamp, composer, dot, dt, exp, first, floor, fract, fresh, int, length, max, min, mix, picture, pointers,
-  scene, shader, sign, signed, sin, size, smoothstep, step, table, time, vec2, vec3, vec4,
+  abs, buffer, clamp, composer, dot, dt, exp, first, floor, fract, fresh, int, length, log, max, min, mix, picture,
+  pointers, scene, shader, sign, signed, sin, size, smoothstep, step, table, time, vec2, vec3, vec4,
 } from 'claude-code/shader'
 import type { Buffer } from 'claude-code/shader'
 
@@ -44,12 +46,79 @@ const G_HITO = 30
 const G_QUOTE = 31
 const FONT = table([[0,0],[0,198],[0,6540],[130,0],[1015808,0],[31744,31],[690176,8],[0,31744],[135300,4228],[139536,1090],[133185,16648],[17732,0],[574788,17983],[480384,149],[1020032,132],[359754,10591],[33831,7201],[541212,29200],[141873,4228],[6336,198],[571392,465],[139875,25378],[70950,22837],[718382,14397],[345088,17732],[574464,4426],[135300,4100],[6336,2246],[463844,4245],[709764,1013],[331908,17962],[330,0]], 'int')
 const TORII = table([[230566,0,0,206609408],[519552160,519552495,519552495,5750255],[173184000,173184165,173184165,169125],[511705088,520093704,268436015,271],[511705088,251658248,268436007,271],[512201728,519552488,284671471,179471],[511705088,8,268435456,271],[511705088,8,268435456,271],[511705088,8,268435456,271],[511705088,8,268435456,271],[511705088,8,268435456,271],[511705088,8,268435456,271],[511705088,8,268435456,271],[511705088,8,268435456,271],[511705088,8,268435456,271],[511705088,8,268435456,271],[519569408,559,520093696,17903],[205719584,33555490,203457536,35012]], 'int')
-const TREES = table([[0.5,0.3,0.35,0.15],[0.3,0.45,0.7,0.5],[0.1,0.62,0.1,1],[0.75,0.19,0.9,0.8],[1.3,0.38,0.2,0.25],[1.55,0.24,0.55,0.6],[1.08,0.52,0.62,1]])
+const TREES = table([[0.5,0.3,0.35,0.15],[0.3,0.45,0.7,0.5],[0.1,0.62,0.1,1],[0.75,0.19,0.9,0.8],[1.95,0.42,0.2,0.3],[1.12,0.3,0.55,0.6],[1.01,0.55,0.62,1]])
 // </generated>
 
 const CELL = 12
 const FLIES = 12
 const LEAVES = 6
+// Kinds are stored as k / KINDS in the art buffer.
+const KINDS = 16
+
+// The climb: three flights of stairs zigzag up the right margin, each to a torii smaller and farther than the last.
+// A flight runs from its foot a = (centre column, row, half width) to its head b, in cells; its steps close up
+// towards the head, as steps do with distance. Each flight starts just above the roof of the gate before it, so no
+// flight shows through a gate and every gate frames clear sky.
+const HALF_GATE = 8.5
+const S2 = 0.55
+const S3 = 0.36
+const SQUEEZE = 1.3
+const N1 = 12
+const N2 = 6
+const N3 = 5
+// Steps climbed a share t of the way up a flight of `count` steps, and the share for n steps.
+const stepsAt = (t: number, count: number) => (count * -log(max(1 - clamp(t, 0, 1) * (1 - exp(-SQUEEZE)), 0.0001))) / SQUEEZE
+const alongAt = (n: number, count: number) => (1 - exp((-SQUEEZE * n) / count)) / (1 - exp(-SQUEEZE))
+// Where a cell falls on a flight: x inside (0 or 1), y which side's rail (-1, 1, or 0), z a tread row (0 or 1), w its step.
+const onFlight = (cx: number, cy: number, a: vec3, b: vec3, count: number) => {
+  const t = (cy + 0.5 - a.y) / (b.y - a.y)
+  const mid = a.x + (b.x - a.x) * t
+  const half = a.z + (b.z - a.z) * t
+  const sx = cx + 0.5 - mid
+  const inside = step(0, t) * step(t, 1) * step(abs(sx), half - 0.01)
+  const rail = step(half - 1, abs(sx)) * (sx < 0 ? -1 : 1)
+  const n0 = stepsAt((cy - a.y) / (b.y - a.y), count)
+  const n1 = stepsAt((cy + 1 - a.y) / (b.y - a.y), count)
+  return vec4(inside, rail, step(floor(n0) + 0.5, floor(n1)), floor(n1))
+}
+// The rail glyph for an edge that moves `slope` columns per row.
+const railGlyph = (slope: number) => (slope > 0.3 ? G_SLASH : slope < -0.3 ? G_BACK : G_PIPE)
+// The torii drawn at scale s, its roof's left end at (x0, top): x the glyph (0 for none), y its row, z its column.
+const toriiAt = (cx: number, cy: number, x0: number, top: number, s: number) => {
+  const gx = floor((cx - x0) / s + 0.001)
+  const gr = floor((top - cy) / s + 0.001)
+  const valid = step(0, gx) * step(gx, 23) * step(0, gr) * step(gr, 17)
+  const line = TORII.at(clamp(gr, 0, 17))
+  const col = clamp(gx, 0, 23)
+  const wi = floor(col / 6)
+  const word = wi < 1 ? line[0] : wi < 2 ? line[1] : wi < 3 ? line[2] : line[3]
+  const tg = signed(int((word >>> int((col - wi * 6) * 5)) & 31))
+  return vec3(tg * valid, gr, gx)
+}
+// A far torii, too small for the glyph drawing, drawn from its parts: roof, tie beam, tablet, two legs and the
+// lower beam, `half` cells either side of column gc and `tall` rows down from row top. x the glyph (0 for none),
+// y 1 on the tablet. Far timber is thin, so the legs are single strokes. Where two parts cross, the larger glyph
+// number wins: a leg over the lower beam.
+const smallTorii = (cx: number, cy: number, gc: number, top: number, half: number, tall: number) => {
+  const dx = abs(cx - gc)
+  const r = top - cy
+  const legs = floor(half * 0.62 + 0.5)
+  const nuki = floor(tall * 0.32) + 1
+  const inside = step(0, r) * step(r, tall - 1) * step(dx, half)
+  const roof = step(r, 0.5) * (dx > half - 0.5 ? G_TILDE : G_HASH)
+  const under = step(0.5, r) * step(r, 1.5) * step(dx, half - 1) * G_EQ
+  const beam = step(abs(r - nuki), 0.5) * step(dx, legs + 1) * G_EQ
+  const tablet = step(1.5, r) * step(r, nuki - 0.5) * step(dx, 0.5) * G_HASH
+  const leg = step(1.5, r) * step(abs(dx - legs), 0.5) * G_PIPE
+  return vec2(max(max(roof, under), max(max(beam, tablet), leg)) * inside, step(0.5, tablet))
+}
+// The climber's seconds per step on each flight, and its rest at each gate.
+const PACE1 = 1
+const PACE2 = 0.85
+const PACE3 = 0.7
+const REST = 3.2
+// Steps taken after t seconds at one step per `per`: a quick lift, then a stand, so it moves one step at a time.
+const pace = (t: number, per: number) => floor(t / per) + smoothstep(0.55, 0.9, fract(t / per))
 
 // Two whole numbers in, 32 scrambled bits out. tools/build.mjs has the same mixer, so the still picture matches.
 const scramble = (a: number, b: number) => {
@@ -79,22 +148,28 @@ const acrossMargin = (pos: number, m: vec4) => (pos < 1 ? m.x + pos * (m.y - m.x
 // Pointer effects are for the margins: over the conversation or the prompt box they nearly stop.
 const freeOf = (over: number) => 1 - 0.9 * over
 
-// Colours by kind: 0 specks, 1 far forest, 2 cedars, 3 mist, 4 torii, 5 spirits, 6 wood and tablet, 7 falling leaves.
+// Colours by kind: 0 specks, 1 far forest, 2 cedars, 3 mist, 4 torii, 5 spirits, 6 wood, tablet and the climber,
+// 7 falling leaves, 8 worn stone (flight 1), 9 light (flights 2 and 3, lamps, the summit), 10 the torii's timber
+// in shade and the lit flights' sides, 11 the sides of the stone flight.
 const INK_LIGHT = table([
   [0.541, 0.588, 0.561], [0.663, 0.749, 0.702], [0.118, 0.357, 0.286], [0.718, 0.784, 0.745],
   [0.831, 0.325, 0.169], [0.043, 0.478, 0.333], [0.227, 0.18, 0.149], [0.878, 0.478, 0.227],
+  [0.42, 0.471, 0.447], [0.78, 0.431, 0.122], [0.541, 0.2, 0.11], [0.62, 0.659, 0.64],
 ])
 const INK_DARK = table([
   [0.369, 0.42, 0.396], [0.161, 0.29, 0.247], [0.267, 0.502, 0.412], [0.212, 0.278, 0.255],
   [0.875, 0.42, 0.247], [0.337, 0.769, 0.584], [0.62, 0.553, 0.49], [0.906, 0.537, 0.329],
+  [0.459, 0.522, 0.49], [0.949, 0.722, 0.42], [0.522, 0.231, 0.141], [0.275, 0.318, 0.298],
 ])
 const HOT_LIGHT = table([
   [0.325, 0.38, 0.357], [0.118, 0.357, 0.286], [0.043, 0.478, 0.333], [0.325, 0.38, 0.357],
   [0.949, 0.4, 0.17], [0.063, 0.725, 0.506], [0.6, 0.3, 0.15], [0.98, 0.45, 0.17],
+  [0.25, 0.3, 0.28], [0.9, 0.45, 0.1], [0.6, 0.22, 0.1], [0.5, 0.54, 0.52],
 ])
 const HOT_DARK = table([
   [0.7, 0.75, 0.72], [0.42, 0.72, 0.6], [0.55, 0.86, 0.71], [0.5, 0.58, 0.55],
   [1, 0.62, 0.4], [0.62, 0.95, 0.8], [0.9, 0.72, 0.55], [1, 0.7, 0.45],
+  [0.78, 0.83, 0.8], [1, 0.86, 0.58], [0.7, 0.33, 0.2], [0.42, 0.47, 0.45],
 ])
 
 // Any glyph but the blank, cycling fast: the look of a cell being worked out.
@@ -266,40 +341,207 @@ const art: Buffer = buffer({ scale: 1 / CELL, float: 16, filter: 'nearest' }, p 
     }
   }
 
-  // The torii, built bottom-up from its characters when the session opens. It glows when a pointer comes near,
-  // and a press anywhere makes it pulse.
-  const gx0 = cols - 27
-  const gy0 = rows - 5
-  const gateMid = vec2((gx0 + 12) * cellSize.x, (gy0 - 9) * cellSize.y)
-  let nearGate = 0
+  // The climb's layout, in cells. Gate 1 stands a little below the middle of the right margin; gates 2 and 3 stand
+  // above it, smaller and farther, to the left and then the right.
+  const L = m.z * cols
+  const W = cols - L
+  const c1 = min(floor(L + W * 0.55), cols - 13)
+  const c2 = floor(L + W * 0.32)
+  const c3 = floor(L + W * 0.6)
+  const b1 = floor(rows * 0.24)
+  const top1 = b1 + 17
+  const b2 = top1 + max(5, floor(rows * 0.12))
+  const top2 = b2 + floor(17 * S2)
+  const b3 = top2 + max(4, floor(rows * 0.09))
+  const top3 = b3 + floor(17 * S3)
+  const f1a = vec3(c1 - W * 0.18, -3, max(HALF_GATE + 4, W * 0.5))
+  const f1b = vec3(c1, b1 + 0.5, HALF_GATE)
+  const f2a = vec3(c1 - 2, top1 + 0.5, 7)
+  const f2b = vec3(c2, b2 + 0.5, HALF_GATE * S2)
+  const f3a = vec3(c2 + 1, top2 + 0.5, 4.5)
+  const f3b = vec3(c3, b3 + 0.5, HALF_GATE * S3)
+
+  // The climber's round: up each flight one step at a time, a rest at each gate, then into the light at the top.
+  const T1 = N1 * PACE1
+  const R1 = T1 + REST
+  const T2 = R1 + N2 * PACE2
+  const R2 = T2 + REST
+  const T3 = R2 + N3 * PACE3
+  const R3 = T3 + REST
+  const lap = R3 + 4
+  const walk = max(time - 4, 0)
+  const tw = walk - floor(walk / lap) * lap
+  const onTheWay = tw < R1 ? 1 : tw < R2 ? 2 : 3
+  const climbed = tw < T1 ? pace(tw, PACE1) : tw < R1 ? N1 : tw < T2 ? pace(tw - R1, PACE2) : tw < R2 ? N2 : tw < T3 ? pace(tw - R2, PACE3) : N3
+  const shown = step(4, time) * smoothstep(0, 0.6, tw) * (1 - smoothstep(R3 - 0.5, R3 + 1.5, tw))
+  // Each gate gives the climber more light, halfway through its rest there.
+  const level = smoothstep(T1 + 1.2, T1 + 2.4, tw) + smoothstep(T2 + 1.2, T2 + 2.4, tw) + smoothstep(T3 + 1.2, T3 + 2.4, tw)
+  const rest1 = smoothstep(T1, T1 + 0.6, tw) * (1 - smoothstep(R1 - 0.6, R1, tw)) * shown
+  const rest2 = smoothstep(T2, T2 + 0.6, tw) * (1 - smoothstep(R2 - 0.6, R2, tw)) * shown
+  const rest3 = smoothstep(T3, T3 + 0.6, tw) * shown
+
+  // Which flight and step a pointer is on, if any: the step under it lights, and a light runs up the next few.
+  let hoverOn = -1
+  let hoverStep = 0
+  let hoverLive = 0
+  for (const f of pointers) {
+    const pc = floor(vec2(f.at / cellSize))
+    const live = (1 - min(f.gone * 2, 1)) * freeOf(f.over)
+    for (let q = 0; q < 3; q++) {
+      const a = q < 0.5 ? f3a : q < 1.5 ? f2a : f1a
+      const z = q < 0.5 ? f3b : q < 1.5 ? f2b : f1b
+      const hit = onFlight(pc.x, pc.y, a, z, q < 0.5 ? N3 : q < 1.5 ? N2 : N1)
+      if (hit.x > 0.5 && live > 0.05) {
+        hoverOn = q
+        hoverStep = hit.w
+        hoverLive = live
+      }
+    }
+  }
+
+  // Gate 1 glows when a pointer comes near or the climber rests under it; a press anywhere makes the gates pulse.
+  const gateMid = vec2(c1 * cellSize.x, (b1 + 9) * cellSize.y)
+  let nearGate = rest1 * 0.8
   for (const f of pointers) {
     nearGate = max(nearGate, smoothstep(300, 70, length(vec2(f.at - gateMid))) * (1 - min(f.gone * 2, 1)) * freeOf(f.over))
   }
-  let onGate = 0
   const pressed = tap.at(vec2(0, 0))
   const since = time - pressed.z
   const pulse = exp(-since * 1.5) * step(0, since)
-  const gx = cx - gx0
-  const gr = gy0 - cy
-  if (gx >= 0 && gx < 24 && gr >= 0 && gr < 18) {
-    const line = TORII.at(gr)
-    const wi = floor(gx / 6)
-    const word = wi < 1 ? line[0] : wi < 2 ? line[1] : wi < 3 ? line[2] : line[3]
-    const tg = signed(int((word >>> int((gx - wi * 6) * 5)) & 31))
-    const built = clamp((time - 1.2 - (17 - gr) * 0.12 - r1 * 0.4) * 2.5, 0, 1)
-    if (tg > 0.5 && built > 0) {
-      const tablet = step(3, gr) * step(gr, 4) * step(10, gx) * step(gx, 13)
-      const ground = step(16.5, gr)
-      const wave = fract(time * 0.5 - gr * 0.06 - gx * 0.025)
-      const rebuild = step(0.3, nearGate) * step(wave, 0.07) * step(14.5, tg) * step(tg, 15.5)
-      onGate = 1
-      g = built < 1 ? busy(r2) : rebuild > 0.5 ? (r2 < 0.5 ? G_PCT : G_AMP) : tg
-      k = ground > 0.5 ? 1 : tablet > 0.5 ? 6 : 4
-      b = 1
-      glow = (0.28 + 0.1 * sin(time * 0.8 + gr * 0.3) + nearGate * 0.6 + pulse * 0.5) * (1 - ground)
+
+  // The summit: a point of light above the last gate, a few sparks round it.
+  const ds = vec2(cx - c3, cy - min(top3 + 3, rows - 2))
+  if (abs(ds.x) < 0.5 && abs(ds.y) < 0.5) {
+    g = G_STAR
+    k = 9
+    b = 0.85 + 0.15 * sin(time * 1.3)
+    glow = 1
+  } else if (length(ds) < 3.2 && r1 < 0.22 && g < 0.5) {
+    g = r2 < 0.5 ? G_DOT : G_TICK
+    k = 9
+    b = 0.35 + 0.35 * (0.5 + 0.5 * sin(time * 2 + r3 * 30))
+    glow = 0.3
+  }
+
+  // Far to near: flight 3 and gate 3, flight 2 and gate 2, flight 1 and gate 1. A gate stands on its flight's head.
+  // Flight 1 is worn stone with moss in the cracks, and the steps taken this round stay a little brighter. Flight 2
+  // carries a dim light, flight 3 a bright one with a wave climbing it: each gate adds light to the climb.
+  // Every flight shows its side as a band of darker stone under its rails, and gates 1 and 2 show the thickness of
+  // their timber as a darker copy one cell behind: that is what makes them read as solid.
+  let onGate = 0
+  for (let q = 0; q < 3; q++) {
+    const a = q < 0.5 ? f3a : q < 1.5 ? f2a : f1a
+    const z = q < 0.5 ? f3b : q < 1.5 ? f2b : f1b
+    const count = q < 0.5 ? N3 : q < 1.5 ? N2 : N1
+    const thick = q < 1.5 ? 1 : 2
+    const here = onFlight(cx, cy, a, z, count)
+    const above = onFlight(cx, cy + thick, a, z, count)
+    if (here.x < 0.5 && above.x > 0.5) {
+      g = r1 < 0.55 ? G_PIPE : G_COLON
+      k = q < 1.5 ? 10 : 11
+      b = q < 1.5 ? 0.55 : 0.7
+      glow = 0
     }
-    // Between the pillars, small lights pass through the gate, more of them when a pointer is near.
-    if (tg < 0.5 && gx >= 7 && gx <= 16 && gr >= 6 && gr <= 15) {
+    if (here.x > 0.5) {
+      const nStep = here.w
+      const tread = here.z
+      const slope = (z.x - a.x + here.y * (z.z - a.z)) / (z.y - a.y)
+      const lampEvery = q < 0.5 ? 2 : 3
+      const lamp = abs(here.y) * tread * step(fract(nStep / lampEvery), 0.1) * step(q, 1.5)
+      const run = fract(time * 0.15) * (count + 4) - 2
+      const wave = exp(-((nStep - run) * (nStep - run)) / 2) * step(q, 0.5)
+      glow = 0
+      if (lamp > 0.5) {
+        g = G_STAR
+        k = 9
+        b = 1
+        glow = q < 0.5 ? 0.7 : 0.4
+      } else if (abs(here.y) > 0.5) {
+        g = railGlyph(slope)
+        k = q < 1.5 ? 9 : 8
+        b = q < 0.5 ? 0.85 : q < 1.5 ? 0.6 : 0.75
+      } else if (tread > 0.5) {
+        g = q > 1.5 && r1 < 0.14 ? G_DASH : G_EQ
+        k = q < 1.5 ? 9 : 8
+        b = q < 0.5 ? 0.8 + 0.2 * wave : q < 1.5 ? 0.55 : 0.8
+        glow = q < 0.5 ? 0.18 + 0.45 * wave : q < 1.5 ? 0.05 : 0
+      } else if (q > 1.5 && r1 < 0.07 && abs(here.y) < 0.5 && r2 < 0.5) {
+        g = G_V
+        k = 2
+        b = 0.55
+      } else if (q < 1.5) {
+        // The lit flights keep their risers bare, so each tread reads as one band of light.
+        g = G_SPACE
+      } else {
+        g = r1 < 0.45 ? G_COLON : r1 < 0.6 ? G_DOT : G_SPACE
+        k = q < 1.5 ? 9 : 8
+        b = q < 1.5 ? 0.25 : r1 < 0.45 ? 0.22 : 0.4
+      }
+      const flightNo = 3 - q
+      const trodden = (step(flightNo + 0.5, onTheWay) + step(abs(flightNo - onTheWay), 0.5) * step(nStep + 0.5, climbed)) * shown
+      b = min(b + trodden * 0.2, 1)
+      if (abs(hoverOn - q) < 0.5 && g > 0.5) {
+        const ahead = nStep - hoverStep
+        const runUp = fract(time * 0.8) * 6
+        const lit = max(exp(-((ahead - runUp) * (ahead - runUp)) / 1.5) * step(0.5, ahead), step(abs(ahead), 0.5)) * step(-0.5, ahead) * step(ahead, 6.5) * hoverLive
+        if (lit > 0.3) {
+          k = 9
+          b = max(b, 0.6 + 0.4 * lit)
+          glow = max(glow, lit * 0.6)
+        }
+      }
+    }
+
+    // The gate at this flight's head, built bottom-up when the session opens, gate 1 first. Gate 1 is the glyph
+    // drawing; gates 2 and 3 are drawn from their parts at their size, fainter with distance. Only gate 1, the
+    // nearest, shows its timber's thickness.
+    const s = q < 0.5 ? S3 : q < 1.5 ? S2 : 1
+    const gc = q < 0.5 ? c3 : q < 1.5 ? c2 : c1
+    const gtop = q < 0.5 ? top3 : q < 1.5 ? top2 : top1
+    const gHalf = floor(12 * s)
+    const gTall = floor(17 * s) + 1
+    let gGlyph = 0
+    let gRow = 0
+    let gCol = -1
+    let tablet = 0
+    let ground = 0
+    let backGlyph = 0
+    if (q > 1.5) {
+      const front = toriiAt(cx, cy, gc - 12, gtop, 1)
+      const back = toriiAt(cx - 1, cy + 1, gc - 12, gtop, 1)
+      gGlyph = front.x
+      gRow = front.y
+      gCol = front.z
+      tablet = step(3, front.y) * step(front.y, 4) * step(10, front.z) * step(front.z, 13)
+      ground = step(16.5, front.y)
+      // The timber's thickness shows beside the pillars and their bases only; under the beams it doubles them.
+      const pillarCol = max(step(2.5, back.z) * step(back.z, 7.5), step(15.5, back.z) * step(back.z, 20.5))
+      backGlyph = back.x * step(back.y, 16.5) * step(2.5, back.y) * pillarCol
+    } else {
+      const front = smallTorii(cx, cy, gc, gtop, gHalf, gTall)
+      gGlyph = front.x
+      gRow = ((gtop - cy) * 17) / max(gTall - 1, 1)
+      tablet = front.y
+    }
+    const built = clamp((time - 1.2 - (2 - q) * 0.9 - (17 - gRow) * 0.08 - r1 * 0.3) * 2.5, 0, 1)
+    const restHere = q < 0.5 ? rest3 : q < 1.5 ? rest2 : nearGate
+    if (gGlyph > 0.5 && built > 0) {
+      const sweep = fract(time * 0.5 - gRow * 0.06 - cx * 0.025)
+      const rebuild = step(0.3, restHere) * step(sweep, 0.07) * step(14.5, gGlyph) * step(gGlyph, 15.5)
+      onGate = 1
+      g = built < 1 ? busy(r2) : rebuild > 0.5 ? (r2 < 0.5 ? G_PCT : G_AMP) : gGlyph
+      k = ground > 0.5 ? 1 : tablet > 0.5 ? 6 : 4
+      const near = q < 0.5 ? 0.6 : q < 1.5 ? 0.75 : 1
+      b = near
+      glow = (0.28 + 0.1 * sin(time * 0.8 + gRow * 0.3) + restHere * 0.6 + pulse * 0.5) * (1 - ground) * near
+    } else if (backGlyph > 0.5 && built > 0.99) {
+      g = backGlyph
+      k = 10
+      b = 0.85
+      glow = 0
+    }
+    // Between gate 1's pillars, small lights drift through, more of them when a pointer is near.
+    if (q > 1.5 && gGlyph < 0.5 && gCol >= 7 && gCol <= 16 && gRow >= 6 && gRow <= 15) {
       const drift = fract(r2 + time * (0.05 + 0.1 * r3))
       if (r1 < 0.05 + 0.3 * nearGate && drift < 0.6) {
         g = r4 < 0.6 ? G_DOT : G_STAR
@@ -309,14 +551,13 @@ const art: Buffer = buffer({ scale: 1 / CELL, float: 16, filter: 'nearest' }, p 
       }
     }
   }
-
   // Orange leaves fall from the gate's crown, turning as they go; a pointer blows them aside.
   for (let i = 0; i < LEAVES; i++) {
     const s1 = part(scramble(i, 41), 0)
     const s2 = part(scramble(i, 43), 8)
     const fall = fract(time / (10 + 6 * s1) + s2)
-    const startX = (gx0 + 3 + 18 * s1) * cellSize.x
-    const startY = (gy0 - 1) * cellSize.y
+    const startX = (c1 - 9 + 18 * s1) * cellSize.x
+    const startY = (top1 - 1) * cellSize.y
     let leaf = vec2(startX - fall * size.x * 0.22 + sin(fall * 9 + i) * 34, startY - fall * startY * 0.85)
     for (const f of pointers) {
       const off = vec2(leaf - f.at)
@@ -352,6 +593,20 @@ const art: Buffer = buffer({ scale: 1 / CELL, float: 16, filter: 'nearest' }, p 
         k = 5
       }
     }
+  }
+
+  // The climber stands on the step it has reached, hidden where a gate is in front of it. It wears the tablet's
+  // colour until gate 1 gives it light, and glows brighter at each gate after.
+  const fa = onTheWay < 1.5 ? f1a : onTheWay < 2.5 ? f2a : f3a
+  const fz = onTheWay < 1.5 ? f1b : onTheWay < 2.5 ? f2b : f3b
+  const along = alongAt(climbed, onTheWay < 1.5 ? N1 : onTheWay < 2.5 ? N2 : N3)
+  const standX = floor(fa.x + (fz.x - fa.x) * along)
+  const standY = floor(fa.y + (fz.y - fa.y) * along) + 1
+  if (shown > 0.05 && onGate < 0.5 && abs(cx - standX) < 0.5 && abs(cy - standY) < 0.5) {
+    g = G_HITO
+    k = level > 0.5 ? 9 : 6
+    b = shown
+    glow = max(glow, (0.15 + 0.3 * level) * shown)
   }
 
   // The lantern: a ring of characters being worked out follows the pointer; inside it, what is there brightens and
@@ -405,14 +660,15 @@ const art: Buffer = buffer({ scale: 1 / CELL, float: 16, filter: 'nearest' }, p 
     glow = max(glow, ripple * 0.5)
   }
 
-  return vec4(g / 32, k / 8, clamp(b, 0, 1), clamp(glow, 0, 1))
+  return vec4(g / 32, k / KINDS, clamp(b, 0, 1), clamp(glow, 0, 1))
 })
 
 // The glow, leaf and warm apart, kept with mipmaps so the picture can read it blurred.
 const halo: Buffer = buffer({ scale: 1 / CELL, float: 16, filter: 'mipmap' }, p => {
   const a = art.at(p.cell)
-  const kind = floor(a.g * 8 + 0.5)
-  const warm = step(3.5, kind) * step(kind, 4.5) + step(6.5, kind)
+  const kind = floor(a.g * KINDS + 0.5)
+  // Warm: the torii (4), falling leaves (7) and the light (9). Leaf: the spirits (5). Shade and sides do not glow.
+  const warm = step(3.5, kind) * step(kind, 4.5) + step(6.5, kind) * step(kind, 7.5) + step(8.5, kind) * step(kind, 9.5)
   const leafy = step(4.5, kind) * step(kind, 5.5)
   return vec4(a.a * leafy, a.a * warm, 0, 1)
 })
@@ -425,7 +681,7 @@ const field = picture(p => {
   const local = vec2((p.uv * grid - t) * cellSize)
   const a = art.at(t)
   const gi = floor(a.r * 32 + 0.5)
-  const kind = floor(a.g * 8 + 0.5)
+  const kind = floor(a.g * KINDS + 0.5)
 
   // The glyph's pixels are 1.5 points square, centred in the cell; row 0 is the glyph's top.
   const col = floor((local.x - 2.25) / 1.5)

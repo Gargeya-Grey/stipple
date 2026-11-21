@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { GLYPHS, TORII } from './art.mjs'
+import { GLYPHS, HALF_GATE, TORII, climbCells } from './art.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -14,9 +14,10 @@ const TREES = [
   [0.3, 0.45, 0.7, 0.5],
   [0.1, 0.62, 0.1, 1],
   [0.75, 0.19, 0.9, 0.8],
-  [1.3, 0.38, 0.2, 0.25],
-  [1.55, 0.24, 0.55, 0.6],
-  [1.08, 0.52, 0.62, 1],
+  // The right margin's cedars flank the stairs: one by the conversation, two at the window's edge.
+  [1.95, 0.42, 0.2, 0.3],
+  [1.12, 0.3, 0.55, 0.6],
+  [1.01, 0.55, 0.62, 1],
 ]
 // The still has no prompt box to measure: the margins it assumes, as the shader does when none is known.
 const MARGINS = [0.12, 0.32, 0.72]
@@ -143,22 +144,37 @@ for (const [pos, hs, seed] of TREES) {
   }
 }
 
-const gx0 = cols - 27
-const gy0 = rows - 5
-const gate = new Set()
-TORII.forEach((line, gr) =>
-  [...line.padEnd(24, ' ')].forEach((ch, gx) => {
-    if (ch === ' ') return
-    const tablet = gr >= 3 && gr <= 4 && gx >= 10 && gx <= 13
-    put(gx0 + gx, gy0 - gr, index.get(ch), gr === 17 ? 1 : tablet ? 6 : 4)
-    gate.add(`${gx0 + gx},${gy0 - gr}`)
-  }),
+// The climb, placed in the right margin as field.ts places it.
+const L = MARGINS[2] * cols
+const Wm = cols - L
+const c1 = Math.min(Math.floor(L + Wm * 0.55), cols - 13)
+const climb = climbCells(
+  {
+    c1,
+    c2: Math.floor(L + Wm * 0.32),
+    c3: Math.floor(L + Wm * 0.6),
+    b1: Math.floor(rows * 0.24),
+    gap2: Math.max(5, Math.floor(rows * 0.12)),
+    gap3: Math.max(4, Math.floor(rows * 0.09)),
+    foot: [c1 - Wm * 0.18, -3, Math.max(HALF_GATE + 4, Wm * 0.5)],
+    cols,
+    rows,
+  },
+  (cx, cy) => part(scramble(cx, cy), 0),
 )
+// Cells kept as glyphs, never merged into blocks.
+const keep = new Set()
+for (const key of climb.covered) grid.delete(key)
+for (const [key, { ch, k }] of climb.cells) {
+  const [cx, cy] = key.split(',').map(Number)
+  put(cx, cy, index.get(ch), k)
+  keep.add(key)
+}
 
 // Forest kinds print as stepped blocks of whole cells, merged along each row: glyph pixels for every needle
-// would pass the size limit. The torii, the specks and everything else keep their glyphs.
+// would pass the size limit. The torii, the stairs, the specks and everything else keep their glyphs.
 const BLOCK = new Set([1, 2, 6])
-const blocky = key => BLOCK.has(grid.get(key)?.[1]) && !gate.has(key)
+const blocky = key => BLOCK.has(grid.get(key)?.[1]) && !keep.has(key)
 const paths = new Map()
 for (let cy = 0; cy < rows; cy++) {
   let cx = 0
@@ -199,8 +215,8 @@ for (const [key, [g, k]] of grid) {
   paths.set(k, d)
 }
 
-const LIGHT = ['#8A968F', '#A9BFB3', '#1E5B49', '#B7C8BE', '#D4532B', '#0B7A55', '#3A2E26', '#E07A3A']
-const DARK = ['#5E6B65', '#294A3F', '#448069', '#364741', '#DF6B3F', '#56C495', '#9E8D7D', '#E78954']
+const LIGHT = ['#8A968F', '#A9BFB3', '#1E5B49', '#B7C8BE', '#D4532B', '#0B7A55', '#3A2E26', '#E07A3A', '#6B7872', '#C76E1F', '#8A331C', '#9EA8A3', '#D4532B', '#D4532B']
+const DARK = ['#5E6B65', '#294A3F', '#448069', '#364741', '#DF6B3F', '#56C495', '#9E8D7D', '#E78954', '#75857D', '#F2B86B', '#853B24', '#46514C', '#DF6B3F', '#DF6B3F']
 const css = [
   '.ground { fill: #F6F7F4; }',
   ...LIGHT.map((c, k) => `.k${k} { fill: ${c}; }`),
@@ -208,6 +224,8 @@ const css = [
   '.k1 { opacity: 0.45; }',
   '.k2 { opacity: 0.3; }',
   '.k6 { opacity: 0.5; }',
+  '.k12 { opacity: 0.75; }',
+  '.k13 { opacity: 0.6; }',
   '@media (prefers-color-scheme: dark) {',
   '.ground { fill: #1A201E; }',
   ...DARK.map((c, k) => `.k${k} { fill: ${c}; }`),
