@@ -14,13 +14,13 @@ const N = 52
 const CELL = SIZE / N
 const P = CELL / 7.6
 
-const GROUND = '#1A201E'
+const GROUND = '#141A18'
 const VERMILION = '#DF6B3F'
 const EMBER = '#E78954'
 const LIGHT = '#F2B86B'
 const STONE = '#75857D'
-const MOSS = '#448069'
-const FIREFLY = '#56C495'
+const MOSS = '#2E5A4A'
+const FIREFLY = '#30996F'
 const SPECK = '#5E6B65'
 const INK = {
   1: [MOSS, 1],

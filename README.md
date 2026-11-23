@@ -1,8 +1,10 @@
 # Stipple
 
+<img src=".claude-plugin/icon.png" alt="The Stipple icon: three vermilion torii and a zigzag of steps climbing to a star, built from text characters" width="160">
+
 A theme mod for Claude Code and the Claude desktop app.
 
-- A paper-and-ink palette for light and dark mode. Dark mode uses grey-green surfaces and grey text, so long reading stays easy.
+- A paper-and-ink palette for light and dark mode. Dark mode uses a deep green-black ground, soft light text and a dark emerald, so long reading stays easy.
 - A living backdrop drawn from characters. Cedars stand in the margins. In the right margin three flights of steps zigzag up through three vermilion torii, each smaller and farther than the last, to a point of light.
 - A small figure, 人, climbs the steps one at a time. It rests at each gate, and each gate gives it more light. The first flight is worn stone, the second carries a dim light, and the third is lit gold.
 - Leaves fall, fireflies drift, and wind moves through the needles.
