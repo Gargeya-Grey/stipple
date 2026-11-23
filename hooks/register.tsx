@@ -5,7 +5,7 @@ import { STILL_SVG } from './still'
 
 const SCENE = 'stipple'
 
-// House tokens. Dark mode is softened on purpose: a grey-green ground and grey text, about 10:1, not 16:1.
+// House tokens. Dark mode is softened on purpose: a deep green-black ground and soft light text, about 13:1.
 const { theme, problems } = makeColors({
   label: 'Stipple',
   roles: { accent: '#1E5B49', danger: '#B4472F', success: '#0B7A55', warning: '#9A6B12', pro: '#56679C' },
@@ -25,17 +25,17 @@ const { theme, problems } = makeColors({
   dark: {
     gray: {
       anchors: {
-        'surface-0': '#1A201E',
-        'surface-1': '#1F2624',
-        'surface-2': '#242B29',
-        'surface-3': '#262E2B',
-        'text-primary': '#CDD3CF',
-        'text-secondary': '#ADB5B1',
-        'text-muted': '#959E99',
+        'surface-0': '#101513',
+        'surface-1': '#141A18',
+        'surface-2': '#19211E',
+        'surface-3': '#1E2723',
+        'text-primary': '#DCE2DE',
+        'text-secondary': '#BAC3BE',
+        'text-muted': '#9EA9A3',
       },
     },
-    roles: { accent: '#56C495', danger: '#DB8A72', success: '#56C495', warning: '#C9A25A', pro: '#93A2CF' },
-    git: { added: '#56C495', removed: '#DB8A72' },
+    roles: { accent: '#30996F', danger: '#DB8A72', success: '#30996F', warning: '#C9A25A', pro: '#93A2CF' },
+    git: { added: '#30996F', removed: '#DB8A72' },
   },
 })
 

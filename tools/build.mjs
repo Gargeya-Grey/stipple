@@ -216,7 +216,7 @@ for (const [key, [g, k]] of grid) {
 }
 
 const LIGHT = ['#8A968F', '#A9BFB3', '#1E5B49', '#B7C8BE', '#D4532B', '#0B7A55', '#3A2E26', '#E07A3A', '#6B7872', '#C76E1F', '#8A331C', '#9EA8A3', '#D4532B', '#D4532B']
-const DARK = ['#5E6B65', '#294A3F', '#448069', '#364741', '#DF6B3F', '#56C495', '#9E8D7D', '#E78954', '#75857D', '#F2B86B', '#853B24', '#46514C', '#DF6B3F', '#DF6B3F']
+const DARK = ['#5E6B65', '#1D352D', '#2E5A4A', '#364741', '#DF6B3F', '#30996F', '#9E8D7D', '#E78954', '#75857D', '#F2B86B', '#853B24', '#46514C', '#DF6B3F', '#DF6B3F']
 const css = [
   '.ground { fill: #F6F7F4; }',
   ...LIGHT.map((c, k) => `.k${k} { fill: ${c}; }`),
@@ -227,7 +227,7 @@ const css = [
   '.k12 { opacity: 0.75; }',
   '.k13 { opacity: 0.6; }',
   '@media (prefers-color-scheme: dark) {',
-  '.ground { fill: #1A201E; }',
+  '.ground { fill: #141A18; }',
   ...DARK.map((c, k) => `.k${k} { fill: ${c}; }`),
   '}',
 ].join('\n')
