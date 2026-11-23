@@ -29,6 +29,17 @@ In the desktop app, where `/plugin` does not run: click + next to the prompt box
 
 A mod installed from a terminal at the user scope also loads in the desktop app's Code tab.
 
+## Update
+
+Run both commands from a shell. The first fetches the new version, and the second installs it:
+
+```
+claude plugin marketplace update stipple
+claude plugin update stipple@stipple
+```
+
+Then restart the app or the terminal session.
+
 ## Files
 
 - `hooks/register.tsx` sets the colors and the backdrop at session start.
