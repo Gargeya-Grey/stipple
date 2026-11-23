@@ -1,6 +1,6 @@
 {
   "name": "stipple",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "description": "Paper-and-ink theme with a living glyph forest and a three-gate climb that answers the pointer."
 }
